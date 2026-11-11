@@ -179,8 +179,9 @@
       <div class="pills" id="typeBtns"></div>
       <div class="grid2">
         <div><label>日付</label><input type="date" id="fDate"></div>
-        <div><label id="distLabel">距離 (km)</label><input type="number" inputmode="decimal" step="0.1" id="fKm"></div>
+        <div id="distBox"><label id="distLabel">距離 (km)</label><input type="number" inputmode="decimal" step="0.1" id="fKm"></div>
       </div>
+      <div id="golfBox" class="hidden" style="margin-top:10px"><label>種別</label><div class="pills" id="golfBtns" style="margin-bottom:0"></div></div>
       <div id="strokeBox" class="hidden" style="margin-top:10px"><label>泳法</label><div class="pills" id="strokeBtns" style="margin-bottom:0"></div></div>
       <div class="grid2" style="margin-top:10px">
         <div><label id="timeLabel">時間 (時:分:秒)</label>
@@ -325,8 +326,15 @@ const TYPES = {
   swim: {name:"スイミング",      color:"#1BA3C6", unit:"m"},
   aqua: {name:"水中ウォーキング", color:"#7A5BD0", unit:"m"},
   bike: {name:"自転車",          color:"#E08A1E", unit:"km"},
+  golf: {name:"ゴルフ",          color:"#5B8C2A", unit:null},
 };
-const TYPE_ORDER=["run","walk","swim","aqua","bike"];
+const TYPE_ORDER=["run","walk","swim","aqua","bike","golf"];
+// ゴルフ: mets=Compendium of Physical Activitiesの代表値, sph=1時間あたりの推定歩数(方法Bの差し引き用)
+const GOLF = {
+  cart:  {name:"ラウンド(カート)", mets:3.5, sph:1500},
+  walk:  {name:"ラウンド(徒歩)",   mets:4.3, sph:2800},
+  range: {name:"練習場",           mets:3.0, sph:200},
+};
 // 泳法: k=総消費 kcal/kg/km, p=標準ペース 秒/100m(時間未入力時の推定用)
 const STROKES = {
   free:  {name:"クロール",   k:4.0, p:165},
@@ -443,6 +451,7 @@ function grossKcal(a){
     case "bike": mets=!v?6.8:v<16?4.0:v<19?6.8:v<22?8.0:v<25?10.0:12.0; break;
     case "swim": if(a.km) return Math.round(STROKES[a.stroke||"free"].k*wt*a.km); mets=7.0; break;
     case "aqua": mets=4.5; break;
+    case "golf": mets=GOLF[a.golf||"cart"].mets; break;
     default: mets=4.0;
   }
   return Math.round(mets*wt*h);
@@ -452,6 +461,7 @@ function netKcal(a){ return Math.max(0, grossKcal(a) - weightOn(a.date)*actSec(a
 function workoutSteps(a){
   if(a.steps) return a.steps;
   if((a.type==="run"||a.type==="walk") && a.km) return a.km*1000/stride(a.type);
+  if(a.type==="golf" && a.sec) return GOLF[a.golf||"cart"].sph*a.sec/3600;
   return 0;
 }
 const actsOn=date=>acts.filter(a=>a.date===date);
@@ -576,7 +586,7 @@ function speedText(a){
 function actRow(a){
   const t=TYPES[a.type];
   const timeTxt = a.sec ? fmtTime(a.sec) : (actSec(a)?"推定"+Math.round(actSec(a)/60)+"分":"");
-  const parts=[timeTxt, speedText(a), a.type==="swim"&&a.stroke?STROKES[a.stroke].name:""].filter(Boolean);
+  const parts=[timeTxt, speedText(a), a.type==="swim"&&a.stroke?STROKES[a.stroke].name:"", a.type==="golf"?GOLF[a.golf||"cart"].name:""].filter(Boolean);
   return '<div class="row"><div class="d">'+md(a.date)+'</div>'
     +'<div class="main"><span class="tag" style="background:'+t.color+'">'+t.name+'</span>'
     +(a.km?'<span class="km">'+distText(a)+'</span>':'')
@@ -596,18 +606,23 @@ function renderActList(){
   box.innerHTML=[...acts].sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:b.id-a.id).slice(0,40).map(actRow).join("");
   bindDel(box);
 }
-let curType="run", curStroke="free";
+let curType="run", curStroke="free", curGolf="cart";
 function renderTypeBtns(){
   $("typeBtns").innerHTML=TYPE_ORDER.map(t=>{const on=t===curType,c=TYPES[t].color;return '<button data-t="'+t+'" class="'+(on?"on":"")+'" style="'+(on?"background:"+c+";border-color:"+c:"")+'">'+TYPES[t].name+'</button>';}).join("");
   $("typeBtns").querySelectorAll("button").forEach(b=>b.onclick=()=>{curType=b.dataset.t;renderTypeBtns();});
   $("strokeBtns").innerHTML=Object.keys(STROKES).map(s=>'<button data-s="'+s+'" class="'+(s===curStroke?"on":"")+'" style="'+(s===curStroke?"background:#1BA3C6;border-color:#1BA3C6":"")+'">'+STROKES[s].name+'</button>').join("");
   $("strokeBtns").querySelectorAll("button").forEach(b=>b.onclick=()=>{curStroke=b.dataset.s;renderTypeBtns();});
-  const pool=curType==="swim"||curType==="aqua";
+  $("golfBtns").innerHTML=Object.keys(GOLF).map(g=>'<button data-g="'+g+'" class="'+(g===curGolf?"on":"")+'" style="'+(g===curGolf?"background:#5B8C2A;border-color:#5B8C2A":"")+'">'+GOLF[g].name+'</button>').join("");
+  $("golfBtns").querySelectorAll("button").forEach(b=>b.onclick=()=>{curGolf=b.dataset.g;renderTypeBtns();});
+  const pool=curType==="swim"||curType==="aqua", golf=curType==="golf";
   $("strokeBox").classList.toggle("hidden",curType!=="swim");
-  $("distLabel").textContent="距離 ("+TYPES[curType].unit+(curType==="run"?"":"・任意")+")";
+  $("golfBox").classList.toggle("hidden",!golf);
+  $("distBox").style.visibility=golf?"hidden":"visible";
+  if(golf) $("fKm").value="";
+  if(!golf) $("distLabel").textContent="距離 ("+TYPES[curType].unit+(curType==="run"?"":"・任意")+")";
   $("timeLabel").textContent=pool?"時間 (任意・おおよそでOK)":"時間 (時:分:秒)";
-  $("fKm").placeholder=TYPES[curType].unit==="m"?"1000":curType==="bike"?"25":curType==="walk"?"5":"10.5";
-  $("fKm").step=TYPES[curType].unit==="m"?"25":"0.1";
+  if(!golf) $("fKm").placeholder=TYPES[curType].unit==="m"?"1000":curType==="bike"?"25":curType==="walk"?"5":"10.5";
+  if(!golf) $("fKm").step=TYPES[curType].unit==="m"?"25":"0.1";
   updateHint();
 }
 $("fDate").value=todayKey();
@@ -622,7 +637,7 @@ function formAct(){
   const raw=Number($("fKm").value);
   const km=raw>0?(TYPES[curType].unit==="m"?raw/1000:raw):null;
   return {date:$("fDate").value||todayKey(),type:curType,km:km?Math.round(km*1000)/1000:null,sec:getFormSec(),
-    kcal:numOrNull($("fKcal").value),stroke:curType==="swim"?curStroke:undefined};
+    kcal:numOrNull($("fKcal").value),stroke:curType==="swim"?curStroke:undefined,golf:curType==="golf"?curGolf:undefined};
 }
 function updateHint(){
   const a=formAct(),h=$("paceHint");
@@ -1000,6 +1015,7 @@ function typeOf(str){
   if(/水中ウォーキング|水中歩行|アクア|aqua|water ?walk|water ?fitness/i.test(str)) return "aqua";
   if(/スイム|スイミング|水泳|swim/i.test(str)) return "swim";
   if(/サイクリング|バイク|自転車|cycl|bik|ride/i.test(str)) return "bike";
+  if(/ゴルフ|golf/i.test(str)) return "golf";
   if(/ウォーキング|ウォーク|walk|ハイキング|hik/i.test(str)) return "walk";
   if(/ラン|run|ジョグ|jog|トレッドミル|treadmill/i.test(str)) return "run";
   return null;
@@ -1013,7 +1029,7 @@ function parseImport(text){
   const H=rows[0], pending=[];
   const isDup=a=>findDup(a)||pending.find(b=>b.date===a.date&&b.type===a.type&&((a.km&&b.km&&Math.abs(a.km-b.km)<0.05)||(!a.km&&!b.km&&Math.abs((a.sec||0)-(b.sec||0))<180)));
   if(exactCol(H,"区分")>=0){ // 本アプリのバックアップ
-    const c={};["区分","日付","種目","距離km","時間","カロリー","泳法","活動歩数","体重","体脂肪率","摂取kcal","歩数","アクティブkcal","安静時kcal","総消費kcal","メモ"].forEach(n=>c[n]=exactCol(H,n));
+    const c={};["区分","日付","種目","距離km","時間","カロリー","泳法","ゴルフ種別","活動歩数","体重","体脂肪率","摂取kcal","歩数","アクティブkcal","安静時kcal","総消費kcal","メモ"].forEach(n=>c[n]=exactCol(H,n));
     const g=(r,n)=>c[n]>=0?r[c[n]]:"";
     for(let i=1;i<rows.length;i++){
       const r=rows[i],kind=(g(r,"区分")||"").trim(),date=(g(r,"日付")||"").trim();
@@ -1029,6 +1045,8 @@ function parseImport(text){
       const strokeKey=Object.keys(STROKES).find(s=>STROKES[s].name===(g(r,"泳法")||"").trim());
       if(!type||(!sec&&!(km>0))){res.bad++;continue;}
       const a={id:Date.now()+i,date,type,km:km>0?km:null,sec:sec||null,kcal:kc>0?kc:null,memo:(g(r,"メモ")||"").trim()||null};
+      const golfKey=Object.keys(GOLF).find(k=>GOLF[k].name===(g(r,"ゴルフ種別")||"").trim());
+      if(golfKey)a.golf=golfKey; else if(type==="golf")a.golf="cart";
       if(strokeKey)a.stroke=strokeKey; if(st>0)a.steps=st;
       if(isDup(a)){res.dup++;continue;}
       pending.push(a);res.acts.push(a);
@@ -1098,9 +1116,9 @@ $("importBtn").onclick=()=>{
 };
 $("exportBtn").onclick=()=>{
   const q=s=>s==null||s===""?"":'"'+String(s).replace(/"/g,'""')+'"', e=v=>v??"";
-  const lines=["区分,日付,種目,距離km,時間,カロリー,泳法,活動歩数,体重,体脂肪率,摂取kcal,歩数,アクティブkcal,安静時kcal,総消費kcal,メモ"];
-  [...acts].sort((a,b)=>a.date<b.date?-1:1).forEach(a=>lines.push(["運動",a.date,TYPES[a.type].name,e(a.km),a.sec?fmtTime(a.sec):"",e(a.kcal),a.stroke?STROKES[a.stroke].name:"",e(a.steps),"","","","","","","",q(a.memo)].join(",")));
-  Object.keys(daily).sort().forEach(k=>{const d=daily[k];lines.push(["日次",k,"","","","","","",e(d.weight),e(d.bf),e(d.intake),e(d.steps),e(d.act),e(d.rest),e(d.burn),""].join(","));});
+  const lines=["区分,日付,種目,距離km,時間,カロリー,泳法,ゴルフ種別,活動歩数,体重,体脂肪率,摂取kcal,歩数,アクティブkcal,安静時kcal,総消費kcal,メモ"];
+  [...acts].sort((a,b)=>a.date<b.date?-1:1).forEach(a=>lines.push(["運動",a.date,TYPES[a.type].name,e(a.km),a.sec?fmtTime(a.sec):"",e(a.kcal),a.stroke?STROKES[a.stroke].name:"",a.golf?GOLF[a.golf].name:"",e(a.steps),"","","","","","","",q(a.memo)].join(",")));
+  Object.keys(daily).sort().forEach(k=>{const d=daily[k];lines.push(["日次",k,"","","","","","","",e(d.weight),e(d.bf),e(d.intake),e(d.steps),e(d.act),e(d.rest),e(d.burn),""].join(","));});
   const blob=new Blob(["﻿"+lines.join("\r\n")],{type:"text/csv;charset=utf-8"});
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="training-log-backup-"+todayKey()+".csv";a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),1000);
