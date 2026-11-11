@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1B2437">
-<title>トレーニング記録 | 長崎マラソンへの道</title>
+<title>トレーニング記録</title>
 <style>
   :root{
     --ink:#1B2437; --sub:#5A6577; --line:#D8DEE7; --bg:#EFF2F6;
@@ -19,7 +19,7 @@
   header{background:var(--ink);color:#fff;padding:calc(env(safe-area-inset-top) + 18px) 0 20px}
   .eyebrow{font-size:11px;letter-spacing:2px;color:#9FB0CC;font-weight:700}
   .count{display:flex;align-items:baseline;gap:8px;margin-top:6px}
-  .count b{font-size:40px;font-weight:800;font-variant-numeric:tabular-nums}
+  .count b{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums}
   .count span{font-size:14px;color:#C6D2E6}
   .raceline{position:relative;height:10px;border-radius:5px;overflow:hidden;display:flex;margin-top:14px}
   .raceline .seg{height:100%}
@@ -108,10 +108,9 @@
 <body>
 <header>
   <div class="wrap">
-    <div class="eyebrow">NAGASAKI MUSIC FESTIVAL MARATHON</div>
-    <div class="count"><b id="days">–</b><span>日前 / 2027.1.31 / 目標 サブ4</span></div>
-    <div class="raceline" id="raceline"><div class="marker" id="marker"></div></div>
-    <div class="raceinfo"><span id="weekinfo"></span><span id="phaseinfo"></span></div>
+    <div class="eyebrow">TRAINING LOG</div>
+    <div class="count"><b>トレーニング記録</b></div>
+    <div class="raceinfo"><span id="todayinfo"></span><span></span></div>
   </div>
 </header>
 
@@ -122,7 +121,7 @@
   <div class="card">
     <div class="stats">
       <div><label>今週のラン</label><div class="v" id="wkKm">0<small> km</small></div></div>
-      <div><label>ラン回数</label><div class="v" id="wkRuns">0<small> /4回</small></div></div>
+      <div><label>ラン回数</label><div class="v" id="wkRuns">0<small> 回</small></div></div>
       <div><label>平均ペース</label><div class="v" id="wkPace">–</div></div>
     </div>
     <div class="stats sm" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
@@ -151,7 +150,7 @@
       </div>
       <table class="calc" id="calcTable" style="margin-top:12px"></table>
       <div class="cmp" id="cmpBox"></div>
-      <div class="chartnote">A=基礎代謝×生活活動係数＋運動 / B=基礎代謝＋食事誘発性＋日常の歩行＋運動 / C=Garminの安静時＋アクティブ(＋手入力のプール)。数値は摂取−消費(kcal)。</div>
+      <div class="chartnote">A=基礎代謝×生活活動係数＋運動 / B=基礎代謝＋食事誘発性＋日常の歩行＋運動 / C=Garminの安静時＋アクティブ(＋手入力のプール。安静時が1日分そろった日だけ)。数値は摂取−消費(kcal)。</div>
     </div>
 
     <div class="card">
@@ -262,7 +261,7 @@
     <div class="card">
       <h2>ペース推移(直近20ラン・分/km)</h2>
       <div id="paceChart"></div>
-      <div class="chartnote">上にいくほど速いペース。赤の点線はサブ4に必要な平均ペース(5'41"/km)です。</div>
+      <div class="chartnote">上にいくほど速いペースです。</div>
     </div>
     <div class="card"><h2>月間サマリー</h2><div id="monthList"></div></div>
   </section>
@@ -319,15 +318,7 @@
 <script>
 "use strict";
 /* ================= 定数 ================= */
-const RACE_DATE = new Date(2027,0,31), PLAN_START = new Date(2026,6,6);
-const PHASES = [
-  {name:"基礎構築", from:1, to:8,  color:"#3D7BD9"},
-  {name:"強化",     from:9, to:16, color:"#2456B8"},
-  {name:"実戦練習", from:17,to:27, color:"#16336E"},
-  {name:"調整(テーパー)", from:28,to:30, color:"#E4472E"},
-];
 const OLD_KEY="runlog-entries", ACT_KEY="actlog-activities-v2", DAY_KEY="actlog-daily-v2", SET_KEY="actlog-settings-v2";
-const SUB4_PACE_MIN = 5 + 41/60;
 const TYPES = {
   run:  {name:"ラン",            color:"#2456B8", unit:"km"},
   walk: {name:"ウォーキング",    color:"#2E9E6A", unit:"km"},
@@ -346,6 +337,7 @@ const STROKES = {
 };
 const METHODS = {A:{name:"A 生活活動係数",color:"#E08A1E"}, B:{name:"B 歩数",color:"#2E9E6A"}, C:{name:"C Garmin",color:"#7A5BD0"}};
 const AQUA_KMH = 2.0;
+const REST_MIN = 1000; // 方法C: 安静時がこれ未満の日は不完全とみなす
 
 /* ================= ユーティリティ ================= */
 const pad=n=>String(n).padStart(2,"0");
@@ -479,8 +471,10 @@ function dayCalc(date){
   } else o.B=null;
   // Garminは時計なしのプールを知らないので、手入力のプール分を加える
   o.pool=actsOn(date).filter(a=>(a.type==="swim"||a.type==="aqua")&&a.src!=="hk"&&a.src!=="csv").reduce((s,a)=>s+netKcal(a),0);
+  // Garminのヘルスケア書き込みは不安定。安静時が1日分に満たない日はCを使わない
+  o.cIncomplete = d.rest!=null && d.rest<REST_MIN;
   if(d.burn) o.C=d.burn+o.pool;
-  else if(d.rest!=null && d.act!=null) o.C=d.rest+d.act+o.pool;
+  else if(d.rest!=null && d.rest>=REST_MIN) o.C=d.rest+(d.act||0)+o.pool;
   else o.C=null;
   for(const m of ["A","B","C"]) o["b"+m] = (o.intake && o[m]!=null) ? o.intake-o[m] : null;
   return o;
@@ -489,15 +483,8 @@ const balanceOn=(date,m=S.method)=>dayCalc(date)["b"+m];
 
 /* ================= ヘッダー ================= */
 (function(){
-  const now=new Date();
-  $("days").textContent=Math.max(0,Math.ceil((RACE_DATE-now)/86400000));
-  const rl=$("raceline"),marker=$("marker");
-  PHASES.forEach(p=>{const s=document.createElement("div");s.className="seg";s.style.width=((p.to-p.from+1)/30*100)+"%";s.style.background=p.color;rl.insertBefore(s,marker);});
-  marker.style.left=Math.min(100,Math.max(0,(now-PLAN_START)/(RACE_DATE-PLAN_START)*100))+"%";
-  const cw=Math.min(30,Math.max(0,Math.floor((now-PLAN_START)/86400000/7)+1));
-  $("weekinfo").textContent=cw>=1?"第"+cw+"週 / 30週":"プラン開始前";
-  const ph=PHASES.find(p=>cw>=p.from&&cw<=p.to);
-  $("phaseinfo").textContent=ph?"フェーズ: "+ph.name:"";
+  const d=new Date(), wd="日月火水木金土"[d.getDay()];
+  $("todayinfo").textContent=d.getFullYear()+"年"+(d.getMonth()+1)+"月"+d.getDate()+"日("+wd+")";
 })();
 
 /* ================= 集計 ================= */
@@ -522,7 +509,7 @@ function maWeight(date,key="weight"){
 function renderStats(){
   const w=weeklyAgg().get(toKey(mondayOf(todayKey())));
   $("wkKm").innerHTML=(w?r1(w.km):0)+"<small> km</small>";
-  $("wkRuns").innerHTML=(w?w.runs:0)+"<small> /4回</small>";
+  $("wkRuns").innerHTML=(w?w.runs:0)+"<small> 回</small>";
   $("wkPace").textContent=w&&w.km?fmtPace(w.sec/w.km):"–";
   $("wkAll").innerHTML=w?fmtHM(w.allSec).replace(/(時間|分)/g,"<small>$1</small>"):"–";
   $("todayBalLbl").textContent="今日の収支("+S.method+")";
@@ -545,7 +532,7 @@ function renderToday(){
   if(c.bmr!=null) tr("基礎代謝", fmtK(c.bmr)+" kcal", ageOn(k)+"歳・"+S.height+"cm・"+weightOn(k)+"kg");
   tr("運動(正味)", fmtK(c.ex)+" kcal", actsOn(k).length+"件");
   if(d.steps!=null) tr("歩数", d.steps.toLocaleString()+" 歩", "うち日常 "+Math.round(c.dailySteps).toLocaleString()+"歩 → "+fmtK(c.stepKcal)+" kcal");
-  if(d.rest!=null||d.act!=null) tr("Garmin", "安静時 "+fmtK(d.rest||0)+" / アクティブ "+fmtK(d.act||0), c.pool?"Cにはプール "+fmtK(c.pool)+" kcalを加算":"");
+  if(d.rest!=null||d.act!=null) tr("Garmin", "安静時 "+fmtK(d.rest||0)+" / アクティブ "+fmtK(d.act||0), c.cIncomplete?"安静時が"+REST_MIN+"kcal未満のため、この日のCは使いません":(c.pool?"Cにはプール "+fmtK(c.pool)+" kcalを加算":""));
   $("calcTable").innerHTML=rows.join("");
   $("cmpBox").innerHTML=["A","B","C"].map(m=>{
     const col=METHODS[m].color, tot=c[m], b=c["b"+m];
@@ -846,13 +833,10 @@ function renderPaceChart(){
   const data=acts.filter(a=>a.type==="run"&&a.km&&a.sec).sort((a,b)=>a.date<b.date?-1:1).slice(-20).map(a=>({label:md(a.date),pace:a.sec/a.km/60}));
   if(data.length<2){empty(box,"2件以上記録するとペースの推移が表示されます。");return;}
   const W=340,H=190,pl=36,pb=22,pt=12;
-  const lo=Math.min(...data.map(d=>d.pace),SUB4_PACE_MIN)-0.3, hi=Math.max(...data.map(d=>d.pace),SUB4_PACE_MIN)+0.3;
+  const lo=Math.min(...data.map(d=>d.pace))-0.3, hi=Math.max(...data.map(d=>d.pace))+0.3;
   const y=p=>pt+(H-pt-pb)*(p-lo)/(hi-lo), x=i=>pl+(W-pl-10)*(i/(data.length-1));
   const s=['<svg viewBox="0 0 '+W+' '+H+'">'];
   gridY(s,W,pl,y,[0,1,2,3].map(g=>{const p=lo+(hi-lo)*g/3;return {v:p,l:fmtPace(p*60).replace('"','')};}));
-  const ys=y(SUB4_PACE_MIN);
-  s.push('<line x1="'+pl+'" y1="'+ys+'" x2="'+W+'" y2="'+ys+'" stroke="#E4472E" stroke-dasharray="4 4"/>');
-  s.push('<text x="'+(W-4)+'" y="'+(ys-4)+'" font-size="9" fill="#E4472E" text-anchor="end">サブ4 5\'41"</text>');
   s.push('<path d="'+data.map((d,i)=>(i?"L":"M")+x(i)+" "+y(d.pace)).join(" ")+'" fill="none" stroke="#2456B8" stroke-width="2.5"/>');
   data.forEach((d,i)=>s.push('<circle cx="'+x(i)+'" cy="'+y(d.pace)+'" r="3" fill="#2456B8"/>'));
   const step=Math.ceil(data.length/6);
@@ -917,7 +901,7 @@ $("pSave").onclick=()=>{
 const hkNum=v=>{const n=parseFloat(String(v||"").replace(/[^\d.\-]/g,""));return isNaN(n)?null:n;};
 function hkDate(v){const m=String(v||"").match(/(\d{4})[-\/年.](\d{1,2})[-\/月.](\d{1,2})/);return m?m[1]+"-"+pad(+m[2])+"-"+pad(+m[3]):null;}
 function hkHour(v){const m=String(v||"").match(/[ T](\d{1,2}):\d{2}/);return m?+m[1]:null;}
-function looksHK(t){return /(^|[\n;])\s*[TSARWFIX]\|/.test(t);}
+function looksHK(t){return /(^|[\n;])\s*[TSARWFIX]\|/i.test(String(t).normalize("NFKC"));}
 function parseDur(v){
   const s=String(v||"").trim(); if(!s) return null;
   if(s.includes(":")) return parseTimeStr(s.replace(/[^\d:]/g,""));
@@ -936,11 +920,11 @@ function findDup(a){
 function applyHK(text){
   const lines=String(text).split(/[\n;\r]+/).map(l=>l.trim()).filter(Boolean);
   let run=null; const cnt={S:0,A:0,R:0,W:0,F:0,I:0,X:0}; let dup=0,skip=0;
-  for(const l of lines){ if(l.startsWith("T|")) run=l.slice(2).trim(); }
+  for(const l of lines){ if(/^T\|/i.test(l.normalize("NFKC"))) run=l.slice(l.indexOf("|")+1).trim(); }
   const runDate=hkDate(run), minDate=runDate?addDays(runDate,-1):null;
   const setDay=(k,f,v)=>{daily[k]=Object.assign({},daily[k]||{},{[f]:v});};
   for(const l of lines){
-    const p=l.split("|"), c=p[0].trim().toUpperCase();
+    const p=l.split("|"), c=p[0].normalize("NFKC").trim().toUpperCase();
     if(c==="T") continue;
     if(c==="I"){
       const v=hkNum(p[2]); if(!v) continue;
