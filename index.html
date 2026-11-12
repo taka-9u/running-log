@@ -184,11 +184,11 @@
       <div id="golfBox" class="hidden" style="margin-top:10px"><label>種別</label><div class="pills" id="golfBtns" style="margin-bottom:0"></div></div>
       <div id="strokeBox" class="hidden" style="margin-top:10px"><label>泳法</label><div class="pills" id="strokeBtns" style="margin-bottom:0"></div></div>
       <div class="grid2" style="margin-top:10px">
-        <div><label id="timeLabel">時間 (時:分:秒)</label>
+        <div><label id="timeLabel">時間 (空欄は0)</label>
           <div class="hms">
-            <input type="number" inputmode="numeric" min="0" placeholder="0" id="fTimeH"><span>:</span>
-            <input type="number" inputmode="numeric" min="0" max="59" placeholder="55" id="fTimeM"><span>:</span>
-            <input type="number" inputmode="numeric" min="0" max="59" placeholder="30" id="fTimeS">
+            <input type="number" inputmode="numeric" min="0" placeholder="時" id="fTimeH"><span>:</span>
+            <input type="number" inputmode="numeric" min="0" max="59" placeholder="分" id="fTimeM"><span>:</span>
+            <input type="number" inputmode="numeric" min="0" max="59" placeholder="秒" id="fTimeS">
           </div>
         </div>
         <div><label>消費カロリー (任意)</label><input type="number" inputmode="numeric" placeholder="自動推定" id="fKcal"></div>
@@ -327,8 +327,15 @@ const TYPES = {
   aqua: {name:"水中ウォーキング", color:"#7A5BD0", unit:"m"},
   bike: {name:"自転車",          color:"#E08A1E", unit:"km"},
   golf: {name:"ゴルフ",          color:"#5B8C2A", unit:null},
+  gym:  {name:"筋トレ",          color:"#A0446B", unit:null},
 };
-const TYPE_ORDER=["run","walk","swim","aqua","bike","golf"];
+const TYPE_ORDER=["run","walk","swim","aqua","bike","golf","gym"];
+const MEMO_EX = {
+  run:"ジョグ / ペース走 / インターバル など", walk:"通勤 / 散歩 / 坂道 など",
+  swim:"25m×40本 / インターバル など", aqua:"前向き・横歩き / 25分 など",
+  bike:"通勤 / ロング / 室内 など", golf:"スコア 92 / 練習場 150球 など",
+  gym:"下半身中心 / 体幹 / マシン など",
+};
 // ゴルフ: mets=Compendium of Physical Activitiesの代表値, sph=1時間あたりの推定歩数(方法Bの差し引き用)
 const GOLF = {
   cart:  {name:"ラウンド(カート)", mets:3.5, sph:1500},
@@ -452,6 +459,7 @@ function grossKcal(a){
     case "swim": if(a.km) return Math.round(STROKES[a.stroke||"free"].k*wt*a.km); mets=7.0; break;
     case "aqua": mets=4.5; break;
     case "golf": mets=GOLF[a.golf||"cart"].mets; break;
+    case "gym": mets=3.5; break; // レジスタンストレーニング(中強度)
     default: mets=4.0;
   }
   return Math.round(mets*wt*h);
@@ -614,13 +622,14 @@ function renderTypeBtns(){
   $("strokeBtns").querySelectorAll("button").forEach(b=>b.onclick=()=>{curStroke=b.dataset.s;renderTypeBtns();});
   $("golfBtns").innerHTML=Object.keys(GOLF).map(g=>'<button data-g="'+g+'" class="'+(g===curGolf?"on":"")+'" style="'+(g===curGolf?"background:#5B8C2A;border-color:#5B8C2A":"")+'">'+GOLF[g].name+'</button>').join("");
   $("golfBtns").querySelectorAll("button").forEach(b=>b.onclick=()=>{curGolf=b.dataset.g;renderTypeBtns();});
-  const pool=curType==="swim"||curType==="aqua", golf=curType==="golf";
+  const pool=curType==="swim"||curType==="aqua", golf=curType==="golf"||curType==="gym";
   $("strokeBox").classList.toggle("hidden",curType!=="swim");
-  $("golfBox").classList.toggle("hidden",!golf);
+  $("golfBox").classList.toggle("hidden",curType!=="golf");
+  $("fMemo").placeholder=MEMO_EX[curType]||"";
   $("distBox").style.visibility=golf?"hidden":"visible";
   if(golf) $("fKm").value="";
   if(!golf) $("distLabel").textContent="距離 ("+TYPES[curType].unit+(curType==="run"?"":"・任意")+")";
-  $("timeLabel").textContent=pool?"時間 (任意・おおよそでOK)":"時間 (時:分:秒)";
+  $("timeLabel").textContent=pool?"時間 (任意・おおよそでOK)":"時間 (空欄は0)";
   if(!golf) $("fKm").placeholder=TYPES[curType].unit==="m"?"1000":curType==="bike"?"25":curType==="walk"?"5":"10.5";
   if(!golf) $("fKm").step=TYPES[curType].unit==="m"?"25":"0.1";
   updateHint();
@@ -1014,8 +1023,9 @@ function typeOf(str){
   if(!str) return null;
   if(/水中ウォーキング|水中歩行|アクア|aqua|water ?walk|water ?fitness/i.test(str)) return "aqua";
   if(/スイム|スイミング|水泳|swim/i.test(str)) return "swim";
-  if(/サイクリング|バイク|自転車|cycl|bik|ride/i.test(str)) return "bike";
+  if(/サイクリング|バイク|自転車|ライド|スピンバイク|cycl|bik|ride|spin/i.test(str)) return "bike";
   if(/ゴルフ|golf/i.test(str)) return "golf";
+  if(/筋トレ|ストレングス|ウェイト|ウエイト|strength|weight/i.test(str)) return "gym";
   if(/ウォーキング|ウォーク|walk|ハイキング|hik/i.test(str)) return "walk";
   if(/ラン|run|ジョグ|jog|トレッドミル|treadmill/i.test(str)) return "run";
   return null;
