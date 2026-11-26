@@ -989,6 +989,8 @@ function applyHK(text){
       const type=typeOf(p[2]); if(!type){skip++;continue;}
       const sec=parseDur(p[3]); let km=hkNum(p[4]); const kc=hkNum(p[5]);
       if(km!=null&&(type==="swim"||type==="aqua")&&km>20) km=km/1000;
+      if(km!=null&&/m\b|メートル/.test(String(p[4]))&&!/km|キロ/.test(String(p[4]))) km=km/1000; // 「10030 m」表記
+      else if(km!=null&&type!=="swim"&&type!=="aqua"&&km>300) km=km/1000; // 単位なしのm表記
       if(km!=null&&km<=0) km=null;
       const a={id:Date.now()+Math.floor(Math.random()*1e6),date:k,type,km:km?Math.round(km*1000)/1000:null,sec:sec||null,kcal:kc&&kc>0?Math.round(kc):null,memo:null,src:"hk"};
       if(!a.sec&&!a.km){skip++;continue;}
@@ -1043,7 +1045,7 @@ function typeOf(str){
   if(/スイム|スイミング|水泳|swim/i.test(str)) return "swim";
   if(/サイクリング|バイク|自転車|ライド|スピンバイク|cycl|bik|ride|spin/i.test(str)) return "bike";
   if(/ゴルフ|golf/i.test(str)) return "golf";
-  if(/筋トレ|ストレングス|ウェイト|ウエイト|strength|weight/i.test(str)) return "gym";
+  if(/筋トレ|筋力|ストレングス|ウェイト|ウエイト|strength|weight/i.test(str)) return "gym";
   if(/ウォーキング|ウォーク|walk|ハイキング|hik/i.test(str)) return "walk";
   if(/ラン|run|ジョグ|jog|トレッドミル|treadmill/i.test(str)) return "run";
   return null;
