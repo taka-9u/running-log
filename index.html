@@ -495,9 +495,11 @@ function dayCalc(date){
   const d=daily[date]||{}, bmr=bmrOn(date), ex=exNetOn(date), wt=weightOn(date);
   const o={date, bmr, ex, intake:d.intake||null, wt};
   o.A = bmr!=null ? bmr*S.pal + ex : null;
-  if(d.steps!=null){
+  const stepsEff = (d.steps!=null||d.stepsPhone!=null) ? Math.max(d.steps||0, d.stepsPhone||0) : null;
+  o.steps=stepsEff;
+  if(stepsEff!=null){
     const wsteps=actsOn(date).reduce((s,a)=>s+workoutSteps(a),0);
-    o.dailySteps=Math.max(0,d.steps-wsteps);
+    o.dailySteps=Math.max(0,stepsEff-wsteps);
     o.stepKcal=0.5*wt*o.dailySteps*stride("walk")/1000;
     o.tef = 0.1*(d.intake || (bmr||0)*1.5);
     o.B = bmr!=null ? bmr + o.tef + o.stepKcal + ex : null;
@@ -565,7 +567,7 @@ function renderToday(){
   tr("体重", d.weight?d.weight+" kg"+(d.bf?" / 体脂肪 "+d.bf+"%":""):"<span class='muted' style='font-size:12px'>"+(weightKeys().length?"直近値 "+weightOn(k)+" kg を使用":"未測定")+"</span>");
   if(c.bmr!=null) tr("基礎代謝", fmtK(c.bmr)+" kcal", ageOn(k)+"歳・"+S.height+"cm・"+weightOn(k)+"kg");
   tr("運動(正味)", fmtK(c.ex)+" kcal", actsOn(k).length+"件");
-  if(d.steps!=null) tr("歩数", d.steps.toLocaleString()+" 歩", "うち日常 "+Math.round(c.dailySteps).toLocaleString()+"歩 → "+fmtK(c.stepKcal)+" kcal");
+  if(c.steps!=null) tr("歩数", c.steps.toLocaleString()+" 歩"+(d.steps!=null&&d.stepsPhone!=null?'<br><span class="s">Garmin '+d.steps.toLocaleString()+' / iPhone '+d.stepsPhone.toLocaleString()+'</span>':""), "うち日常 "+Math.round(c.dailySteps).toLocaleString()+"歩 → "+fmtK(c.stepKcal)+" kcal");
   if(d.rest!=null||d.act!=null) tr("Garmin", "安静時 "+fmtK(d.rest||0)+" / アクティブ "+fmtK(d.act||0), c.cIncomplete?"安静時が"+REST_MIN+"kcal未満のため、この日のCは使いません":c.cSuspect?"安静時が"+REST_MAX+"kcalを超えるため(重複の疑い)、この日のCは使いません":(c.pool?"Cにはプール "+fmtK(c.pool)+" kcalを加算":""));
   $("calcTable").innerHTML=rows.join("");
   $("cmpBox").innerHTML=["A","B","C"].map(m=>{
@@ -944,7 +946,7 @@ $("pSave").onclick=()=>{
 const hkNum=v=>{const n=parseFloat(String(v||"").replace(/[^\d.\-]/g,""));return isNaN(n)?null:n;};
 function hkDate(v){const m=String(v||"").match(/(\d{4})[-\/年.](\d{1,2})[-\/月.](\d{1,2})/);return m?m[1]+"-"+pad(+m[2])+"-"+pad(+m[3]):null;}
 function hkHour(v){const m=String(v||"").match(/[ T](\d{1,2}):\d{2}/);return m?+m[1]:null;}
-function looksHK(t){return /(^|[\n;])\s*[TSARWFIX]\|/i.test(String(t).normalize("NFKC"));}
+function looksHK(t){return /(^|[\n;])\s*[TSPARWFIX]\|/i.test(String(t).normalize("NFKC"));}
 function parseDur(v){
   const s=String(v||"").trim(); if(!s) return null;
   if(s.includes(":")) return parseTimeStr(s.replace(/[^\d:]/g,""));
@@ -963,7 +965,7 @@ function findDup(a){
 function applyHK(text){
   syncFromStorage();
   const lines=String(text).split(/[\n;\r]+/).map(l=>l.trim()).filter(Boolean);
-  let run=null; const cnt={S:0,A:0,R:0,W:0,F:0,I:0,X:0}; let dup=0,skip=0;
+  let run=null; const cnt={S:0,P:0,A:0,R:0,W:0,F:0,I:0,X:0}; let dup=0,skip=0;
   for(const l of lines){ if(/^T\|/i.test(l.normalize("NFKC"))) run=l.slice(l.indexOf("|")+1).trim(); }
   const runDate=hkDate(run), minDate=runDate?addDays(runDate,-1):null;
   const setDay=(k,f,v)=>{daily[k]=Object.assign({},daily[k]||{},{[f]:v});};
@@ -978,9 +980,10 @@ function applyHK(text){
     }
     const k=hkDate(p[1]); if(!k){skip++;continue;}
     if(minDate&&k<minDate){skip++;continue;} // 途中までしか含まない古い日は無視
-    if("SARWF".includes(c)&&c.length===1){
+    if("SPARWF".includes(c)&&c.length===1){
       let v=hkNum(p[2]); if(v==null){skip++;continue;}
       if(c==="S"){ if(v<=0){skip++;continue;} setDay(k,"steps",Math.round(v)); } // 0歩は未同期とみなす
+      if(c==="P"){ if(v<=0){skip++;continue;} setDay(k,"stepsPhone",Math.round(v)); } // iPhoneの歩数
       if(c==="A") setDay(k,"act",Math.round(v));
       if(c==="R") setDay(k,"rest",Math.round(v));
       if(c==="W"){ if(v>20&&v<300) setDay(k,"weight",Math.round(v*10)/10); else {skip++;continue;} }
@@ -1003,7 +1006,7 @@ function applyHK(text){
   }
   _wIdx=null;
   acts.sort((x,y)=>x.date<y.date?-1:1);
-  const names={S:"歩数",A:"アクティブ",R:"安静時",W:"体重",F:"体脂肪",I:"摂取",X:"ワークアウト"};
+  const names={S:"歩数",P:"iPhone歩数",A:"アクティブ",R:"安静時",W:"体重",F:"体脂肪",I:"摂取",X:"ワークアウト"};
   const summary=Object.keys(cnt).filter(k=>cnt[k]).map(k=>names[k]+" "+cnt[k]).join(" / ")+(dup?" / 重複スキップ "+dup:"")+(skip?" / 対象外 "+skip:"");
   const now=new Date();
   S.lastHK={at:md(todayKey())+" "+pad(now.getHours())+":"+pad(now.getMinutes()), summary:summary||"データなし"};
@@ -1061,14 +1064,14 @@ function parseImport(text){
   const H=rows[0], pending=[];
   const isDup=a=>findDup(a)||pending.find(b=>b.date===a.date&&b.type===a.type&&((a.km&&b.km&&Math.abs(a.km-b.km)<0.05)||(!a.km&&!b.km&&Math.abs((a.sec||0)-(b.sec||0))<180)));
   if(exactCol(H,"区分")>=0){ // 本アプリのバックアップ
-    const c={};["区分","日付","種目","距離km","時間","カロリー","泳法","ゴルフ種別","活動歩数","体重","体脂肪率","摂取kcal","歩数","アクティブkcal","安静時kcal","総消費kcal","メモ"].forEach(n=>c[n]=exactCol(H,n));
+    const c={};["区分","日付","種目","距離km","時間","カロリー","泳法","ゴルフ種別","活動歩数","体重","体脂肪率","摂取kcal","歩数","iPhone歩数","アクティブkcal","安静時kcal","総消費kcal","メモ"].forEach(n=>c[n]=exactCol(H,n));
     const g=(r,n)=>c[n]>=0?r[c[n]]:"";
     for(let i=1;i<rows.length;i++){
       const r=rows[i],kind=(g(r,"区分")||"").trim(),date=(g(r,"日付")||"").trim();
       if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){res.bad++;continue;}
       if(kind==="日次"){
         const d={};const put=(f,n)=>{const v=cleanNum(g(r,n));if(v>0)d[f]=v;};
-        put("weight","体重");put("bf","体脂肪率");put("intake","摂取kcal");put("steps","歩数");put("act","アクティブkcal");put("rest","安静時kcal");put("burn","総消費kcal");
+        put("weight","体重");put("bf","体脂肪率");put("intake","摂取kcal");put("steps","歩数");put("stepsPhone","iPhone歩数");put("act","アクティブkcal");put("rest","安静時kcal");put("burn","総消費kcal");
         if(Object.keys(d).length){res.days[date]=d;res.dayN++;}
         continue;
       }
@@ -1150,9 +1153,9 @@ $("importBtn").onclick=()=>{
 $("exportBtn").onclick=()=>{
   syncFromStorage();
   const q=s=>s==null||s===""?"":'"'+String(s).replace(/"/g,'""')+'"', e=v=>v??"";
-  const lines=["区分,日付,種目,距離km,時間,カロリー,泳法,ゴルフ種別,活動歩数,体重,体脂肪率,摂取kcal,歩数,アクティブkcal,安静時kcal,総消費kcal,メモ"];
-  [...acts].sort((a,b)=>a.date<b.date?-1:1).forEach(a=>lines.push(["運動",a.date,TYPES[a.type].name,e(a.km),a.sec?fmtTime(a.sec):"",e(a.kcal),a.stroke?STROKES[a.stroke].name:"",a.golf?GOLF[a.golf].name:"",e(a.steps),"","","","","","","",q(a.memo)].join(",")));
-  Object.keys(daily).sort().forEach(k=>{const d=daily[k];lines.push(["日次",k,"","","","","","","",e(d.weight),e(d.bf),e(d.intake),e(d.steps),e(d.act),e(d.rest),e(d.burn),""].join(","));});
+  const lines=["区分,日付,種目,距離km,時間,カロリー,泳法,ゴルフ種別,活動歩数,体重,体脂肪率,摂取kcal,歩数,iPhone歩数,アクティブkcal,安静時kcal,総消費kcal,メモ"];
+  [...acts].sort((a,b)=>a.date<b.date?-1:1).forEach(a=>lines.push(["運動",a.date,TYPES[a.type].name,e(a.km),a.sec?fmtTime(a.sec):"",e(a.kcal),a.stroke?STROKES[a.stroke].name:"",a.golf?GOLF[a.golf].name:"",e(a.steps),"","","","","","","","",q(a.memo)].join(",")));
+  Object.keys(daily).sort().forEach(k=>{const d=daily[k];lines.push(["日次",k,"","","","","","","",e(d.weight),e(d.bf),e(d.intake),e(d.steps),e(d.stepsPhone),e(d.act),e(d.rest),e(d.burn),""].join(","));});
   const blob=new Blob(["﻿"+lines.join("\r\n")],{type:"text/csv;charset=utf-8"});
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="training-log-backup-"+todayKey()+".csv";a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),1000);
