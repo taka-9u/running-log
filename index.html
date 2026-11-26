@@ -338,9 +338,9 @@ const MEMO_EX = {
 };
 // ゴルフ: mets=Compendium of Physical Activitiesの代表値, sph=1時間あたりの推定歩数(方法Bの差し引き用)
 const GOLF = {
+  range: {name:"練習場",           mets:3.0, sph:200},
   cart:  {name:"ラウンド(カート)", mets:3.5, sph:1500},
   walk:  {name:"ラウンド(徒歩)",   mets:4.3, sph:2800},
-  range: {name:"練習場",           mets:3.0, sph:200},
 };
 // 泳法: k=総消費 kcal/kg/km, p=標準ペース 秒/100m(時間未入力時の推定用)
 const STROKES = {
@@ -403,6 +403,20 @@ try{
   }
 }catch(e){storageOK=false;acts=acts||[];}
 if(!storageOK) $("storageWarn").classList.remove("hidden");
+/* 複数のタブ(ショートカットが毎晩開く新しいタブなど)で古いデータを書き戻さないよう、
+   変更の直前と、画面に戻ったとき・他のタブが保存したときに保存内容を読み直す */
+function syncFromStorage(){
+  try{
+    const a=load(ACT_KEY,null); if(a) acts=a;
+    daily=load(DAY_KEY,{});
+    S=Object.assign(S,load(SET_KEY,{}));
+    _wIdx=null;
+  }catch(e){}
+}
+function refreshView(){ syncFromStorage(); if(typeof renderAll==="function") renderAll(); }
+window.addEventListener("storage",e=>{ if([ACT_KEY,DAY_KEY,SET_KEY].includes(e.key)) refreshView(); });
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") refreshView(); });
+window.addEventListener("pageshow",e=>{ if(e.persisted) refreshView(); });
 function persist(){
   try{
     localStorage.setItem(ACT_KEY,JSON.stringify(acts));
@@ -572,6 +586,7 @@ $("dDate").addEventListener("input",renderToday);
 $("dPrev").onclick=()=>{$("dDate").value=addDays(curDay(),-1);renderToday();};
 $("dNext").onclick=()=>{$("dDate").value=addDays(curDay(),1);renderToday();};
 $("dSave").onclick=()=>{
+  syncFromStorage();
   const k=curDay(), d=Object.assign({},daily[k]||{});
   const set=(f,v,dec)=>{ if(v==null) return; if(v===0) delete d[f]; else d[f]=dec?Math.round(v*10)/10:Math.round(v); };
   set("intake",numOrNull($("dIntake").value));
@@ -605,7 +620,7 @@ function actRow(a){
 }
 function bindDel(box){
   box.querySelectorAll(".del[data-id]").forEach(b=>{
-    b.onclick=()=>{ if(!confirm("この記録を削除しますか?")) return; acts=acts.filter(a=>a.id!==Number(b.dataset.id)); persist(); renderAll(); };
+    b.onclick=()=>{ if(!confirm("この記録を削除しますか?")) return; syncFromStorage(); acts=acts.filter(a=>a.id!==Number(b.dataset.id)); persist(); renderAll(); };
   });
 }
 function renderActList(){
@@ -614,7 +629,7 @@ function renderActList(){
   box.innerHTML=[...acts].sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:b.id-a.id).slice(0,40).map(actRow).join("");
   bindDel(box);
 }
-let curType="run", curStroke="free", curGolf="cart";
+let curType="run", curStroke="free", curGolf="range";
 function renderTypeBtns(){
   $("typeBtns").innerHTML=TYPE_ORDER.map(t=>{const on=t===curType,c=TYPES[t].color;return '<button data-t="'+t+'" class="'+(on?"on":"")+'" style="'+(on?"background:"+c+";border-color:"+c:"")+'">'+TYPES[t].name+'</button>';}).join("");
   $("typeBtns").querySelectorAll("button").forEach(b=>b.onclick=()=>{curType=b.dataset.t;renderTypeBtns();});
@@ -658,6 +673,7 @@ function updateHint(){
 }
 ["fKm","fTimeH","fTimeM","fTimeS","fDate","fKcal"].forEach(id=>$(id).addEventListener("input",updateHint));
 $("addBtn").onclick=()=>{
+  syncFromStorage();
   const err=$("formErr");err.classList.add("hidden");
   const show=t=>{err.textContent=t;err.classList.remove("hidden");};
   const a=formAct(), pool=a.type==="swim"||a.type==="aqua";
@@ -763,7 +779,7 @@ function renderFit(){
 
 function renderMethodBtns(){
   $("methodBtns").innerHTML=["A","B","C"].map(m=>{const on=S.method===m,c=METHODS[m].color;return '<button data-m="'+m+'" class="'+(on?"on":"")+'" style="'+(on?"background:"+c+";border-color:"+c:"")+'">'+METHODS[m].name+'</button>';}).join("");
-  $("methodBtns").querySelectorAll("button").forEach(b=>b.onclick=()=>{S.method=b.dataset.m;persist();renderAll();});
+  $("methodBtns").querySelectorAll("button").forEach(b=>b.onclick=()=>{syncFromStorage();S.method=b.dataset.m;persist();renderAll();});
 }
 function renderBalChart(){
   const box=$("balChart"),N=28,days=lastNDays(N);
@@ -910,6 +926,7 @@ function renderSettingsInfo(){
   $("hkInfo").innerHTML=h?"最終の自動取込:<b>"+h.at+"</b><br>"+esc(h.summary):"まだショートカットからの取り込みはありません。";
 }
 $("pSave").onclick=()=>{
+  syncFromStorage();
   S.sex=$("pSex").value; S.birth=$("pBirth").value; S.height=numOrNull($("pHeight").value);
   const fw=numOrNull($("pWeight").value); if(fw&&fw>20) S.fallbackW=fw;
   S.pal=Number($("pPal").value)||1.35;
@@ -942,6 +959,7 @@ function findDup(a){
     (!a.km&&a.sec&&b.sec&&Math.abs(a.sec-b.sec)<180)));
 }
 function applyHK(text){
+  syncFromStorage();
   const lines=String(text).split(/[\n;\r]+/).map(l=>l.trim()).filter(Boolean);
   let run=null; const cnt={S:0,A:0,R:0,W:0,F:0,I:0,X:0}; let dup=0,skip=0;
   for(const l of lines){ if(/^T\|/i.test(l.normalize("NFKC"))) run=l.slice(l.indexOf("|")+1).trim(); }
@@ -1113,6 +1131,7 @@ $("fileInput").addEventListener("change",ev=>{
   rd.readAsArrayBuffer(f); ev.target.value="";
 });
 $("importBtn").onclick=()=>{
+  syncFromStorage();
   if(!preview)return;
   let msg;
   if(preview.hk){msg="取り込みました:"+applyHK(preview.hk);}
@@ -1125,6 +1144,7 @@ $("importBtn").onclick=()=>{
   flash($("importMsg"),msg); $("csvText").value=""; preview=null; $("previewBox").classList.add("hidden"); renderAll();
 };
 $("exportBtn").onclick=()=>{
+  syncFromStorage();
   const q=s=>s==null||s===""?"":'"'+String(s).replace(/"/g,'""')+'"', e=v=>v??"";
   const lines=["区分,日付,種目,距離km,時間,カロリー,泳法,ゴルフ種別,活動歩数,体重,体脂肪率,摂取kcal,歩数,アクティブkcal,安静時kcal,総消費kcal,メモ"];
   [...acts].sort((a,b)=>a.date<b.date?-1:1).forEach(a=>lines.push(["運動",a.date,TYPES[a.type].name,e(a.km),a.sec?fmtTime(a.sec):"",e(a.kcal),a.stroke?STROKES[a.stroke].name:"",a.golf?GOLF[a.golf].name:"",e(a.steps),"","","","","","","",q(a.memo)].join(",")));
