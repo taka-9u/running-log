@@ -353,6 +353,7 @@ const STROKES = {
 const METHODS = {A:{name:"A 生活活動係数",color:"#E08A1E"}, B:{name:"B 歩数",color:"#2E9E6A"}, C:{name:"C Garmin",color:"#7A5BD0"}};
 const AQUA_KMH = 2.0;
 const REST_MIN = 1000; // 方法C: 安静時がこれ未満の日は不完全とみなす
+const REST_MAX = 2500; // 方法C: これを超える日は重複計上の疑いとみなす
 
 /* ================= ユーティリティ ================= */
 const pad=n=>String(n).padStart(2,"0");
@@ -505,8 +506,9 @@ function dayCalc(date){
   o.pool=actsOn(date).filter(a=>(a.type==="swim"||a.type==="aqua")&&a.src!=="hk"&&a.src!=="csv").reduce((s,a)=>s+netKcal(a),0);
   // Garminのヘルスケア書き込みは不安定。安静時が1日分に満たない日はCを使わない
   o.cIncomplete = d.rest!=null && d.rest<REST_MIN;
+  o.cSuspect = d.rest!=null && d.rest>REST_MAX;
   if(d.burn) o.C=d.burn+o.pool;
-  else if(d.rest!=null && d.rest>=REST_MIN) o.C=d.rest+(d.act||0)+o.pool;
+  else if(d.rest!=null && d.rest>=REST_MIN && d.rest<=REST_MAX) o.C=d.rest+(d.act||0)+o.pool;
   else o.C=null;
   for(const m of ["A","B","C"]) o["b"+m] = (o.intake && o[m]!=null) ? o.intake-o[m] : null;
   return o;
@@ -564,7 +566,7 @@ function renderToday(){
   if(c.bmr!=null) tr("基礎代謝", fmtK(c.bmr)+" kcal", ageOn(k)+"歳・"+S.height+"cm・"+weightOn(k)+"kg");
   tr("運動(正味)", fmtK(c.ex)+" kcal", actsOn(k).length+"件");
   if(d.steps!=null) tr("歩数", d.steps.toLocaleString()+" 歩", "うち日常 "+Math.round(c.dailySteps).toLocaleString()+"歩 → "+fmtK(c.stepKcal)+" kcal");
-  if(d.rest!=null||d.act!=null) tr("Garmin", "安静時 "+fmtK(d.rest||0)+" / アクティブ "+fmtK(d.act||0), c.cIncomplete?"安静時が"+REST_MIN+"kcal未満のため、この日のCは使いません":(c.pool?"Cにはプール "+fmtK(c.pool)+" kcalを加算":""));
+  if(d.rest!=null||d.act!=null) tr("Garmin", "安静時 "+fmtK(d.rest||0)+" / アクティブ "+fmtK(d.act||0), c.cIncomplete?"安静時が"+REST_MIN+"kcal未満のため、この日のCは使いません":c.cSuspect?"安静時が"+REST_MAX+"kcalを超えるため(重複の疑い)、この日のCは使いません":(c.pool?"Cにはプール "+fmtK(c.pool)+" kcalを加算":""));
   $("calcTable").innerHTML=rows.join("");
   $("cmpBox").innerHTML=["A","B","C"].map(m=>{
     const col=METHODS[m].color, tot=c[m], b=c["b"+m];
@@ -978,7 +980,7 @@ function applyHK(text){
     if(minDate&&k<minDate){skip++;continue;} // 途中までしか含まない古い日は無視
     if("SARWF".includes(c)&&c.length===1){
       let v=hkNum(p[2]); if(v==null){skip++;continue;}
-      if(c==="S") setDay(k,"steps",Math.round(v));
+      if(c==="S"){ if(v<=0){skip++;continue;} setDay(k,"steps",Math.round(v)); } // 0歩は未同期とみなす
       if(c==="A") setDay(k,"act",Math.round(v));
       if(c==="R") setDay(k,"rest",Math.round(v));
       if(c==="W"){ if(v>20&&v<300) setDay(k,"weight",Math.round(v*10)/10); else {skip++;continue;} }
